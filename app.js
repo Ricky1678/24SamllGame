@@ -25,6 +25,10 @@
     return Math.abs(actual - expected) < EPSILON;
   }
 
+  function isWholeNumber(value) {
+    return isClose(value, Math.round(value));
+  }
+
   function now() {
     if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
       return performance.now();
@@ -43,6 +47,14 @@
 
   function formatElapsed(milliseconds) {
     return `${(milliseconds / 1000).toFixed(1)} 秒`;
+  }
+
+  function formatScore(correctCount, totalCount) {
+    return `${correctCount} / ${totalCount}`;
+  }
+
+  function getTotalElapsed(completedElapsed) {
+    return completedElapsed;
   }
 
   function tokenize(expression) {
@@ -158,7 +170,13 @@
             throw new ExpressionError('不能除以 0');
           }
 
-          value /= right;
+          const quotient = value / right;
+
+          if (!isWholeNumber(quotient)) {
+            throw new ExpressionError('除法只能使用整除，不能产生小数或分数');
+          }
+
+          value = quotient;
         }
       }
 
@@ -279,14 +297,14 @@
             },
           ];
 
-          if (!isClose(right.value, 0)) {
+          if (!isClose(right.value, 0) && isWholeNumber(left.value / right.value)) {
             candidates.push({
               value: left.value / right.value,
               expression: `(${left.expression}/${right.expression})`,
             });
           }
 
-          if (!isClose(left.value, 0)) {
+          if (!isClose(left.value, 0) && isWholeNumber(right.value / left.value)) {
             candidates.push({
               value: right.value / left.value,
               expression: `(${right.expression}/${left.expression})`,
@@ -328,13 +346,16 @@
   const state = {
     answered: false,
     answerRevealed: false,
+    currentElapsed: 0,
     elements: null,
-    lastElapsed: 0,
     numbers: [],
     score: 0,
     solution: '',
     startTime: 0,
+    timerActive: false,
     timerId: null,
+    totalElapsed: 0,
+    totalPuzzles: 0,
   };
 
   function getElements() {
@@ -346,7 +367,6 @@
       answer: document.querySelector('[data-answer]'),
       form: document.querySelector('[data-form]'),
       input: document.querySelector('[data-expression]'),
-      lastTime: document.querySelector('[data-last-time]'),
       newPuzzle: document.querySelector('[data-new-puzzle]'),
       numbers: document.querySelector('[data-numbers]'),
       score: document.querySelector('[data-score]'),
@@ -354,6 +374,7 @@
       status: document.querySelector('[data-status]'),
       submit: document.querySelector('[data-submit]'),
       timer: document.querySelector('[data-timer]'),
+      totalTime: document.querySelector('[data-total-time]'),
     };
 
     return state.elements;
@@ -367,16 +388,31 @@
 
   function updateTimer() {
     const elements = getElements();
-    state.lastElapsed = now() - state.startTime;
-    elements.timer.textContent = formatElapsed(state.lastElapsed);
+    if (state.timerActive) {
+      state.currentElapsed = now() - state.startTime;
+    }
+
+    elements.timer.textContent = formatElapsed(state.currentElapsed);
+    elements.totalTime.textContent = formatElapsed(getTotalElapsed(state.totalElapsed));
   }
 
-  function stopTimer() {
+  function finishTimer({ countElapsed = false } = {}) {
+    if (!state.timerActive) {
+      updateTimer();
+      return;
+    }
+
     if (state.timerId) {
       clearInterval(state.timerId);
       state.timerId = null;
     }
 
+    updateTimer();
+    if (countElapsed) {
+      state.totalElapsed += state.currentElapsed;
+    }
+
+    state.timerActive = false;
     updateTimer();
   }
 
@@ -386,7 +422,8 @@
     }
 
     state.startTime = now();
-    state.lastElapsed = 0;
+    state.currentElapsed = 0;
+    state.timerActive = true;
     updateTimer();
     state.timerId = setInterval(updateTimer, 250);
   }
@@ -405,25 +442,29 @@
 
   function updateScore() {
     const elements = getElements();
-    elements.score.textContent = String(state.score);
+    elements.score.textContent = formatScore(state.score, state.totalPuzzles);
   }
 
   function newPuzzle() {
     const elements = getElements();
+
+    finishTimer();
+
     const puzzle = generateSolvablePuzzle();
 
     state.answered = false;
     state.answerRevealed = false;
     state.numbers = puzzle.numbers;
     state.solution = puzzle.solution;
+    state.totalPuzzles += 1;
     elements.answer.hidden = true;
     elements.answer.textContent = '';
     elements.input.disabled = false;
     elements.input.value = '';
     elements.submit.disabled = false;
-    elements.lastTime.textContent = '--';
 
     renderNumbers();
+    updateScore();
     setStatus('输入表达式，让四个数字通过加减乘除得到 24。', 'neutral');
     startTimer();
     elements.input.focus();
@@ -446,12 +487,11 @@
 
     state.answered = true;
     state.score += 1;
-    stopTimer();
+    finishTimer({ countElapsed: true });
     updateScore();
     elements.submit.disabled = true;
     elements.input.disabled = true;
-    elements.lastTime.textContent = formatElapsed(state.lastElapsed);
-    setStatus(`答案正确，本题用时 ${formatElapsed(state.lastElapsed)}。`, 'success');
+    setStatus(`答案正确，本题用时 ${formatElapsed(state.currentElapsed)}。`, 'success');
   }
 
   function handleShowAnswer() {
@@ -462,8 +502,7 @@
     elements.answer.hidden = false;
     elements.submit.disabled = true;
     elements.input.disabled = true;
-    stopTimer();
-    elements.lastTime.textContent = formatElapsed(state.lastElapsed);
+    finishTimer();
     setStatus('已查看答案，本题不计分。点击“换一题”继续。', 'neutral');
   }
 
@@ -484,6 +523,8 @@
   return {
     findSolution,
     formatElapsed,
+    formatScore,
+    getTotalElapsed,
     generateSolvablePuzzle,
     parseExpression,
     startGame,

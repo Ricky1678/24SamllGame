@@ -1,8 +1,12 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const test = require('node:test');
 
 const {
   findSolution,
+  formatScore,
+  getTotalElapsed,
   generateSolvablePuzzle,
   parseExpression,
   validateAnswer,
@@ -47,12 +51,35 @@ test('validateAnswer reports mismatched parentheses clearly', () => {
   assert.match(result.message, /括号/);
 });
 
+test('parseExpression rejects division that produces a fraction', () => {
+  assert.throws(
+    () => parseExpression('5/2+8+9+1'),
+    /整除/,
+  );
+});
+
+test('validateAnswer allows division when the quotient is an integer', () => {
+  const result = validateAnswer('8/(4-2)*6', [8, 4, 2, 6]);
+
+  assert.equal(result.ok, true);
+  closeTo(result.value, 24);
+});
+
 test('findSolution returns an expression that validates for a known solvable puzzle', () => {
-  const solution = findSolution([1, 3, 4, 6]);
-  const result = validateAnswer(solution, [1, 3, 4, 6]);
+  const solution = findSolution([8, 4, 2, 6]);
+  const result = validateAnswer(solution, [8, 4, 2, 6]);
 
   assert.equal(typeof solution, 'string');
   assert.equal(result.ok, true);
+});
+
+test('findSolution does not use non-integer division steps', () => {
+  const solution = findSolution([1, 5, 5, 5]);
+  const result = validateAnswer(solution, [1, 5, 5, 5]);
+
+  assert.equal(solution, null);
+  assert.equal(result.ok, false);
+  assert.match(result.message, /请输入表达式/);
 });
 
 test('generateSolvablePuzzle returns four 1-9 digits with a valid solution', () => {
@@ -62,4 +89,21 @@ test('generateSolvablePuzzle returns four 1-9 digits with a valid solution', () 
   assert.equal(puzzle.numbers.length, 4);
   assert.ok(puzzle.numbers.every((number) => Number.isInteger(number) && number >= 1 && number <= 9));
   assert.equal(result.ok, true);
+});
+
+test('getTotalElapsed excludes current unfinished puzzle time', () => {
+  assert.equal(getTotalElapsed(12_000, 3_500), 12_000);
+});
+
+test('formatScore shows correct answers over total generated puzzles', () => {
+  assert.equal(formatScore(3, 7), '3 / 7');
+});
+
+test('index shows total elapsed time instead of previous puzzle time', () => {
+  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+
+  assert.match(html, /总用时/);
+  assert.doesNotMatch(html, /上题用时/);
+  assert.match(html, /data-total-time/);
+  assert.match(html, /data-score>0 \/ 0</);
 });
