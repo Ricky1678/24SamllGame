@@ -501,8 +501,6 @@
 
     state.elements = {
       answer: document.querySelector('[data-answer]'),
-      difficultyTabs: document.querySelector('[data-difficulty-tabs]'),
-      difficultyButtons: [...document.querySelectorAll('[data-difficulty]')],
       form: document.querySelector('[data-form]'),
       input: document.querySelector('[data-expression]'),
       newPuzzle: document.querySelector('[data-new-puzzle]'),
@@ -583,16 +581,6 @@
     elements.score.textContent = formatScore(state.score, state.totalPuzzles);
   }
 
-  function updateDifficultyTabs() {
-    const elements = getElements();
-
-    elements.difficultyButtons.forEach((button) => {
-      const selected = button.dataset.difficulty === state.difficulty;
-      button.classList.toggle('is-active', selected);
-      button.setAttribute('aria-selected', String(selected));
-    });
-  }
-
   function createPuzzleRecord(difficulty) {
     const puzzle = generateSolvablePuzzle(difficulty);
 
@@ -658,7 +646,6 @@
 
     renderNumbers();
     updateScore();
-    updateDifficultyTabs();
     setStatus(record.statusText, record.statusType);
     updateTimer();
 
@@ -666,18 +653,6 @@
       startTimer(record.currentElapsed);
       elements.input.focus();
     }
-  }
-
-  function showDifficultyPuzzle(difficulty) {
-    saveActivePuzzleState();
-    state.difficulty = difficulty;
-
-    if (!state.puzzleCache[difficulty]) {
-      state.puzzleCache[difficulty] = createPuzzleRecord(difficulty);
-      state.totalPuzzles += 1;
-    }
-
-    applyPuzzleRecord(state.puzzleCache[difficulty]);
   }
 
   function newPuzzle() {
@@ -726,16 +701,6 @@
     saveActivePuzzleState();
   }
 
-  function handleDifficultyClick(event) {
-    const button = event.target.closest('[data-difficulty]');
-
-    if (!button || button.dataset.difficulty === state.difficulty) {
-      return;
-    }
-
-    showDifficultyPuzzle(button.dataset.difficulty);
-  }
-
   function startGame() {
     if (typeof document === 'undefined') {
       return;
@@ -744,7 +709,6 @@
     const elements = getElements();
 
     elements.form.addEventListener('submit', handleSubmit);
-    elements.difficultyTabs.addEventListener('click', handleDifficultyClick);
     elements.newPuzzle.addEventListener('click', newPuzzle);
     elements.showAnswer.addEventListener('click', handleShowAnswer);
     updateScore();

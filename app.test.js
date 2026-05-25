@@ -154,22 +154,20 @@ test('index shows total elapsed time instead of previous puzzle time', () => {
   assert.match(html, /data-score>0 \/ 0</);
 });
 
-test('index includes difficulty tabs', () => {
+test('index hides difficulty switching tabs', () => {
   const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 
-  assert.match(html, /data-difficulty-tabs/);
-  assert.match(html, /data-difficulty="easy"/);
-  assert.match(html, /data-difficulty="normal"/);
-  assert.match(html, /data-difficulty="hard"/);
-  assert.match(html, /data-difficulty="normal"[^>]*aria-selected="false"/);
-  assert.match(html, /data-difficulty="hard"[^>]*aria-selected="true"/);
+  assert.doesNotMatch(html, /data-difficulty-tabs/);
+  assert.doesNotMatch(html, /data-difficulty="easy"/);
+  assert.doesNotMatch(html, /data-difficulty="normal"/);
+  assert.doesNotMatch(html, /data-difficulty="hard"/);
 });
 
-test('difficulty tab switching uses cached puzzle instead of refreshing directly', () => {
+test('startGame does not bind difficulty tab events', () => {
   const source = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
-  const handlerMatch = source.match(/function handleDifficultyClick[\s\S]*?\n  function startGame/);
+  const startMatch = source.match(/function startGame[\s\S]*?\n  return \{/);
 
-  assert.ok(handlerMatch, 'handleDifficultyClick should exist');
-  assert.match(handlerMatch[0], /showDifficultyPuzzle\(/);
-  assert.doesNotMatch(handlerMatch[0], /newPuzzle\(/);
+  assert.ok(startMatch, 'startGame should exist');
+  assert.doesNotMatch(startMatch[0], /difficultyTabs/);
+  assert.doesNotMatch(startMatch[0], /handleDifficultyClick/);
 });
