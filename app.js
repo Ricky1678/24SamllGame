@@ -18,6 +18,38 @@
   }
 })(typeof window !== 'undefined' ? window : globalThis, function createGameApi() {
   const EPSILON = 1e-9;
+  const DEFAULT_DIFFICULTY = 'hard';
+  const DEFAULT_STATUS_MESSAGE = '输入表达式，让四个数字通过加减乘除得到 24。';
+  const DIFFICULTY_CONFIGS = {
+    easy: {
+      id: 'easy',
+      label: '简单',
+      maxAttempts: 5000,
+      maxSolutions: Infinity,
+      minNumber: 1,
+      solutionSearchLimit: 80,
+    },
+    normal: {
+      id: 'normal',
+      label: '普通',
+      maxAttempts: 9000,
+      maxSolutions: 8,
+      minNumber: 1,
+      solutionSearchLimit: 9,
+    },
+    hard: {
+      id: 'hard',
+      label: '困难',
+      avoidObviousPair: true,
+      fallbackAfter: 12000,
+      fallbackMinNumber: 1,
+      maxAttempts: 18000,
+      maxSolutions: 3,
+      minNumber: 2,
+      solutionSearchLimit: 4,
+      uniqueNumbers: true,
+    },
+  };
 
   class ExpressionError extends Error {}
 
@@ -57,6 +89,26 @@
     return completedElapsed;
   }
 
+  function getDifficultyConfig(difficulty = DEFAULT_DIFFICULTY) {
+    return DIFFICULTY_CONFIGS[difficulty] || DIFFICULTY_CONFIGS[DEFAULT_DIFFICULTY];
+  }
+
+  function createCandidateNumbers(config, random = Math.random) {
+    const minNumber = config.minNumber || 1;
+
+    if (config.uniqueNumbers) {
+      const pool = Array.from({ length: 10 - minNumber }, (_, index) => minNumber + index);
+      return Array.from({ length: 4 }, () => {
+        const index = Math.floor(random() * pool.length);
+        const [number] = pool.splice(index, 1);
+        return number;
+      });
+    }
+
+    const rangeSize = 10 - minNumber;
+    return Array.from({ length: 4 }, () => Math.floor(random() * rangeSize) + minNumber);
+  }
+
   function tokenize(expression) {
     const tokens = [];
     let index = 0;
@@ -81,6 +133,13 @@
 
       if (/[+\-*/()]/.test(char)) {
         tokens.push({ type: char, value: char });
+        index += 1;
+        continue;
+      }
+
+      if (char === '（' || char === '）') {
+        const normalized = char === '（' ? '(' : ')';
+        tokens.push({ type: normalized, value: normalized });
         index += 1;
         continue;
       }
@@ -262,15 +321,61 @@
     };
   }
 
-  function findSolution(numbers) {
+  function buildOperationCandidates(left, right) {
+    const candidates = [
+      {
+        value: left.value + right.value,
+        expression: `(${left.expression}+${right.expression})`,
+      },
+      {
+        value: left.value - right.value,
+        expression: `(${left.expression}-${right.expression})`,
+      },
+      {
+        value: right.value - left.value,
+        expression: `(${right.expression}-${left.expression})`,
+      },
+      {
+        value: left.value * right.value,
+        expression: `(${left.expression}*${right.expression})`,
+      },
+    ];
+
+    if (!isClose(right.value, 0) && isWholeNumber(left.value / right.value)) {
+      candidates.push({
+        value: left.value / right.value,
+        expression: `(${left.expression}/${right.expression})`,
+      });
+    }
+
+    if (!isClose(left.value, 0) && isWholeNumber(right.value / left.value)) {
+      candidates.push({
+        value: right.value / left.value,
+        expression: `(${right.expression}/${left.expression})`,
+      });
+    }
+
+    return candidates;
+  }
+
+  function collectSolutions(numbers, limit = Infinity) {
     const items = numbers.map((number) => ({
       value: number,
       expression: String(number),
     }));
+    const solutions = new Set();
 
     function search(currentItems) {
+      if (solutions.size >= limit) {
+        return;
+      }
+
       if (currentItems.length === 1) {
-        return isClose(currentItems[0].value, 24) ? currentItems[0].expression : null;
+        if (isClose(currentItems[0].value, 24)) {
+          solutions.add(currentItems[0].expression);
+        }
+
+        return;
       }
 
       for (let leftIndex = 0; leftIndex < currentItems.length; leftIndex += 1) {
@@ -278,64 +383,93 @@
           const left = currentItems[leftIndex];
           const right = currentItems[rightIndex];
           const rest = currentItems.filter((_, index) => index !== leftIndex && index !== rightIndex);
-          const candidates = [
-            {
-              value: left.value + right.value,
-              expression: `(${left.expression}+${right.expression})`,
-            },
-            {
-              value: left.value - right.value,
-              expression: `(${left.expression}-${right.expression})`,
-            },
-            {
-              value: right.value - left.value,
-              expression: `(${right.expression}-${left.expression})`,
-            },
-            {
-              value: left.value * right.value,
-              expression: `(${left.expression}*${right.expression})`,
-            },
-          ];
-
-          if (!isClose(right.value, 0) && isWholeNumber(left.value / right.value)) {
-            candidates.push({
-              value: left.value / right.value,
-              expression: `(${left.expression}/${right.expression})`,
-            });
-          }
-
-          if (!isClose(left.value, 0) && isWholeNumber(right.value / left.value)) {
-            candidates.push({
-              value: right.value / left.value,
-              expression: `(${right.expression}/${left.expression})`,
-            });
-          }
+          const candidates = buildOperationCandidates(left, right);
 
           for (const candidate of candidates) {
-            const solution = search([...rest, candidate]);
-
-            if (solution) {
-              return solution;
-            }
+            search([...rest, candidate]);
           }
         }
       }
-
-      return null;
     }
 
-    return search(items);
+    search(items);
+    return [...solutions];
   }
 
-  function generateSolvablePuzzle(random = Math.random) {
-    for (let attempt = 0; attempt < 5000; attempt += 1) {
-      const numbers = Array.from({ length: 4 }, () => Math.floor(random() * 9) + 1);
-      const solution = findSolution(numbers);
+  function hasObviousPair(numbers) {
+    for (let leftIndex = 0; leftIndex < numbers.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < numbers.length; rightIndex += 1) {
+        if (numbers[leftIndex] * numbers[rightIndex] === 24) {
+          return true;
+        }
+      }
+    }
 
-      if (solution) {
+    return false;
+  }
+
+  function analyzePuzzle(numbers, options = {}) {
+    const solutionLimit = options.solutionSearchLimit || 80;
+    const solutions = collectSolutions(numbers, solutionLimit);
+    const solutionCount = solutions.length;
+
+    return {
+      numbers: [...numbers],
+      solution: solutions[0] || null,
+      solutionCount,
+      solutions,
+      solvable: solutionCount > 0,
+      hasObviousPair: hasObviousPair(numbers),
+    };
+  }
+
+  function matchesDifficulty(analysis, config) {
+    if (!analysis.solvable) {
+      return false;
+    }
+
+    if (Number.isFinite(config.maxSolutions) && analysis.solutionCount > config.maxSolutions) {
+      return false;
+    }
+
+    if (config.avoidObviousPair && analysis.hasObviousPair) {
+      return false;
+    }
+
+    return true;
+  }
+
+  function findSolution(numbers) {
+    return collectSolutions(numbers, 1)[0] || null;
+  }
+
+  function generateSolvablePuzzle(difficulty = DEFAULT_DIFFICULTY, random = Math.random) {
+    let selectedDifficulty = difficulty;
+    let selectedRandom = random;
+
+    if (typeof difficulty === 'function') {
+      selectedDifficulty = DEFAULT_DIFFICULTY;
+      selectedRandom = difficulty;
+    }
+
+    const config = getDifficultyConfig(selectedDifficulty);
+
+    for (let attempt = 0; attempt < config.maxAttempts; attempt += 1) {
+      const useFallbackRange = config.fallbackMinNumber && attempt >= config.fallbackAfter;
+      const candidateConfig = useFallbackRange
+        ? { ...config, minNumber: config.fallbackMinNumber }
+        : config;
+      const numbers = createCandidateNumbers(candidateConfig, selectedRandom);
+      const analysis = analyzePuzzle(numbers, {
+        solutionSearchLimit: config.solutionSearchLimit,
+      });
+
+      if (matchesDifficulty(analysis, config)) {
         return {
           numbers,
-          solution,
+          solution: analysis.solution,
+          analysis,
+          difficulty: config.id,
         };
       }
     }
@@ -347,8 +481,10 @@
     answered: false,
     answerRevealed: false,
     currentElapsed: 0,
+    difficulty: DEFAULT_DIFFICULTY,
     elements: null,
     numbers: [],
+    puzzleCache: {},
     score: 0,
     solution: '',
     startTime: 0,
@@ -365,6 +501,8 @@
 
     state.elements = {
       answer: document.querySelector('[data-answer]'),
+      difficultyTabs: document.querySelector('[data-difficulty-tabs]'),
+      difficultyButtons: [...document.querySelectorAll('[data-difficulty]')],
       form: document.querySelector('[data-form]'),
       input: document.querySelector('[data-expression]'),
       newPuzzle: document.querySelector('[data-new-puzzle]'),
@@ -416,13 +554,13 @@
     updateTimer();
   }
 
-  function startTimer() {
+  function startTimer(initialElapsed = 0) {
     if (state.timerId) {
       clearInterval(state.timerId);
     }
 
-    state.startTime = now();
-    state.currentElapsed = 0;
+    state.startTime = now() - initialElapsed;
+    state.currentElapsed = initialElapsed;
     state.timerActive = true;
     updateTimer();
     state.timerId = setInterval(updateTimer, 250);
@@ -445,29 +583,108 @@
     elements.score.textContent = formatScore(state.score, state.totalPuzzles);
   }
 
-  function newPuzzle() {
+  function updateDifficultyTabs() {
+    const elements = getElements();
+
+    elements.difficultyButtons.forEach((button) => {
+      const selected = button.dataset.difficulty === state.difficulty;
+      button.classList.toggle('is-active', selected);
+      button.setAttribute('aria-selected', String(selected));
+    });
+  }
+
+  function createPuzzleRecord(difficulty) {
+    const puzzle = generateSolvablePuzzle(difficulty);
+
+    return {
+      answerHidden: true,
+      answerRevealed: false,
+      answerText: '',
+      answered: false,
+      currentElapsed: 0,
+      difficulty,
+      inputDisabled: false,
+      inputValue: '',
+      numbers: puzzle.numbers,
+      solution: puzzle.solution,
+      statusText: DEFAULT_STATUS_MESSAGE,
+      statusType: 'neutral',
+      submitDisabled: false,
+    };
+  }
+
+  function saveActivePuzzleState({ pauseTimer = true } = {}) {
+    const record = state.puzzleCache[state.difficulty];
+
+    if (!record || typeof document === 'undefined') {
+      return;
+    }
+
+    const elements = getElements();
+    if (pauseTimer) {
+      finishTimer();
+    } else {
+      updateTimer();
+    }
+    record.answerHidden = elements.answer.hidden;
+    record.answerRevealed = state.answerRevealed;
+    record.answerText = elements.answer.textContent;
+    record.answered = state.answered;
+    record.currentElapsed = state.currentElapsed;
+    record.inputDisabled = elements.input.disabled;
+    record.inputValue = elements.input.value;
+    record.numbers = [...state.numbers];
+    record.solution = state.solution;
+    record.statusText = elements.status.textContent;
+    record.statusType = elements.status.dataset.type || 'neutral';
+    record.submitDisabled = elements.submit.disabled;
+  }
+
+  function applyPuzzleRecord(record) {
     const elements = getElements();
 
     finishTimer();
+    state.answered = record.answered;
+    state.answerRevealed = record.answerRevealed;
+    state.currentElapsed = record.currentElapsed;
+    state.numbers = [...record.numbers];
+    state.solution = record.solution;
 
-    const puzzle = generateSolvablePuzzle();
-
-    state.answered = false;
-    state.answerRevealed = false;
-    state.numbers = puzzle.numbers;
-    state.solution = puzzle.solution;
-    state.totalPuzzles += 1;
-    elements.answer.hidden = true;
-    elements.answer.textContent = '';
-    elements.input.disabled = false;
-    elements.input.value = '';
-    elements.submit.disabled = false;
+    elements.answer.hidden = record.answerHidden;
+    elements.answer.textContent = record.answerText;
+    elements.input.disabled = record.inputDisabled;
+    elements.input.value = record.inputValue;
+    elements.submit.disabled = record.submitDisabled;
 
     renderNumbers();
     updateScore();
-    setStatus('输入表达式，让四个数字通过加减乘除得到 24。', 'neutral');
-    startTimer();
-    elements.input.focus();
+    updateDifficultyTabs();
+    setStatus(record.statusText, record.statusType);
+    updateTimer();
+
+    if (!record.answered && !record.answerRevealed) {
+      startTimer(record.currentElapsed);
+      elements.input.focus();
+    }
+  }
+
+  function showDifficultyPuzzle(difficulty) {
+    saveActivePuzzleState();
+    state.difficulty = difficulty;
+
+    if (!state.puzzleCache[difficulty]) {
+      state.puzzleCache[difficulty] = createPuzzleRecord(difficulty);
+      state.totalPuzzles += 1;
+    }
+
+    applyPuzzleRecord(state.puzzleCache[difficulty]);
+  }
+
+  function newPuzzle() {
+    saveActivePuzzleState();
+    state.puzzleCache[state.difficulty] = createPuzzleRecord(state.difficulty);
+    state.totalPuzzles += 1;
+    applyPuzzleRecord(state.puzzleCache[state.difficulty]);
   }
 
   function handleSubmit(event) {
@@ -482,6 +699,7 @@
 
     if (!result.ok) {
       setStatus(result.message, 'error');
+      saveActivePuzzleState({ pauseTimer: false });
       return;
     }
 
@@ -492,6 +710,7 @@
     elements.submit.disabled = true;
     elements.input.disabled = true;
     setStatus(`答案正确，本题用时 ${formatElapsed(state.currentElapsed)}。`, 'success');
+    saveActivePuzzleState();
   }
 
   function handleShowAnswer() {
@@ -504,6 +723,17 @@
     elements.input.disabled = true;
     finishTimer();
     setStatus('已查看答案，本题不计分。点击“换一题”继续。', 'neutral');
+    saveActivePuzzleState();
+  }
+
+  function handleDifficultyClick(event) {
+    const button = event.target.closest('[data-difficulty]');
+
+    if (!button || button.dataset.difficulty === state.difficulty) {
+      return;
+    }
+
+    showDifficultyPuzzle(button.dataset.difficulty);
   }
 
   function startGame() {
@@ -514,6 +744,7 @@
     const elements = getElements();
 
     elements.form.addEventListener('submit', handleSubmit);
+    elements.difficultyTabs.addEventListener('click', handleDifficultyClick);
     elements.newPuzzle.addEventListener('click', newPuzzle);
     elements.showAnswer.addEventListener('click', handleShowAnswer);
     updateScore();
@@ -521,9 +752,12 @@
   }
 
   return {
+    analyzePuzzle,
+    createCandidateNumbers,
     findSolution,
     formatElapsed,
     formatScore,
+    getDifficultyConfig,
     getTotalElapsed,
     generateSolvablePuzzle,
     parseExpression,

@@ -115,6 +115,37 @@ h1 {
   line-height: 1.7;
 }
 
+.difficulty-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 18px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f9fbff;
+}
+
+.difficulty-tab {
+  min-height: 40px;
+  color: var(--muted);
+  border: 1px solid transparent;
+  background: transparent;
+}
+
+.difficulty-tab:hover:not(:disabled) {
+  color: var(--primary);
+  border-color: var(--line);
+  background: #ffffff;
+  transform: none;
+}
+
+.difficulty-tab.is-active {
+  color: #ffffff;
+  border-color: var(--primary);
+  background: var(--primary);
+}
+
 .stats {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -258,6 +289,10 @@ input:focus {
 
   button {
     width: 100%;
+  }
+
+  .difficulty-tab {
+    width: auto;
   }
 
   .actions {

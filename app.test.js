@@ -4,10 +4,13 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
+  analyzePuzzle,
+  createCandidateNumbers,
   findSolution,
   formatScore,
   getTotalElapsed,
   generateSolvablePuzzle,
+  getDifficultyConfig,
   parseExpression,
   validateAnswer,
 } = require('./app.js');
@@ -23,8 +26,22 @@ test('parseExpression honors parentheses and operator precedence', () => {
   assert.deepEqual(result.numbers, [8, 5, 9, 1]);
 });
 
+test('parseExpression supports Chinese parentheses', () => {
+  const result = parseExpression('（8-5）*（9-1）');
+
+  closeTo(result.value, 24);
+  assert.deepEqual(result.numbers, [8, 5, 9, 1]);
+});
+
 test('validateAnswer accepts a correct expression using all digits in any order', () => {
   const result = validateAnswer('(8-5)*(9-1)', [9, 1, 8, 5]);
+
+  assert.equal(result.ok, true);
+  closeTo(result.value, 24);
+});
+
+test('validateAnswer accepts Chinese parentheses in a correct answer', () => {
+  const result = validateAnswer('（8-5）*（9-1）', [9, 1, 8, 5]);
 
   assert.equal(result.ok, true);
   closeTo(result.value, 24);
@@ -73,6 +90,35 @@ test('findSolution returns an expression that validates for a known solvable puz
   assert.equal(result.ok, true);
 });
 
+test('analyzePuzzle counts integer-division solutions', () => {
+  const analysis = analyzePuzzle([8, 4, 2, 6]);
+
+  assert.equal(analysis.solvable, true);
+  assert.ok(analysis.solutionCount > 0);
+  assert.equal(typeof analysis.solution, 'string');
+});
+
+test('hard candidate generation avoids 1 and repeated numbers by default', () => {
+  const numbers = createCandidateNumbers(getDifficultyConfig('hard'), () => 0);
+
+  assert.deepEqual(numbers, [2, 3, 4, 5]);
+  assert.equal(new Set(numbers).size, 4);
+});
+
+test('hard puzzle generation prefers numbers without 1 or repeats and limited solutions', () => {
+  const puzzle = generateSolvablePuzzle('hard');
+  const result = validateAnswer(puzzle.solution, puzzle.numbers);
+
+  assert.equal(result.ok, true);
+  assert.ok(puzzle.numbers.every((number) => number >= 2));
+  assert.equal(new Set(puzzle.numbers).size, 4);
+  assert.ok(puzzle.analysis.solutionCount <= getDifficultyConfig('hard').maxSolutions);
+});
+
+test('default difficulty is hard', () => {
+  assert.equal(getDifficultyConfig().id, 'hard');
+});
+
 test('findSolution does not use non-integer division steps', () => {
   const solution = findSolution([1, 5, 5, 5]);
   const result = validateAnswer(solution, [1, 5, 5, 5]);
@@ -106,4 +152,24 @@ test('index shows total elapsed time instead of previous puzzle time', () => {
   assert.doesNotMatch(html, /上题用时/);
   assert.match(html, /data-total-time/);
   assert.match(html, /data-score>0 \/ 0</);
+});
+
+test('index includes difficulty tabs', () => {
+  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+
+  assert.match(html, /data-difficulty-tabs/);
+  assert.match(html, /data-difficulty="easy"/);
+  assert.match(html, /data-difficulty="normal"/);
+  assert.match(html, /data-difficulty="hard"/);
+  assert.match(html, /data-difficulty="normal"[^>]*aria-selected="false"/);
+  assert.match(html, /data-difficulty="hard"[^>]*aria-selected="true"/);
+});
+
+test('difficulty tab switching uses cached puzzle instead of refreshing directly', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
+  const handlerMatch = source.match(/function handleDifficultyClick[\s\S]*?\n  function startGame/);
+
+  assert.ok(handlerMatch, 'handleDifficultyClick should exist');
+  assert.match(handlerMatch[0], /showDifficultyPuzzle\(/);
+  assert.doesNotMatch(handlerMatch[0], /newPuzzle\(/);
 });
