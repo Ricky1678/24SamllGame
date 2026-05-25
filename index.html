@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>24 点小游戏</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <main class="game">
+      <section class="play-area" aria-labelledby="game-title">
+        <div class="heading">
+          <p class="eyebrow">随机有解题</p>
+          <h1 id="game-title">24 点小游戏</h1>
+          <p class="intro">用四个数字各一次，通过加、减、乘、除和括号得到 24。</p>
+        </div>
+
+        <div class="stats" aria-label="游戏状态">
+          <div>
+            <span class="stat-label">答对数</span>
+            <strong data-score>0</strong>
+          </div>
+          <div>
+            <span class="stat-label">本题用时</span>
+            <strong data-timer>0.0 秒</strong>
+          </div>
+          <div>
+            <span class="stat-label">上题用时</span>
+            <strong data-last-time>--</strong>
+          </div>
+        </div>
+
+        <div class="numbers" data-numbers aria-label="当前题目数字"></div>
+
+        <form class="answer-form" data-form>
+          <label for="expression">输入表达式</label>
+          <div class="input-row">
+            <input
+              id="expression"
+              data-expression
+              name="expression"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="例如：(8-5)*(9-1)"
+            >
+            <button data-submit type="submit">提交</button>
+          </div>
+        </form>
+
+        <div class="actions" aria-label="题目操作">
+          <button data-new-puzzle type="button">换一题</button>
+          <button data-show-answer type="button" class="secondary">查看答案</button>
+        </div>
+
+        <p class="status" data-status data-type="neutral" role="status" aria-live="polite"></p>
+        <p class="answer" data-answer hidden></p>
+      </section>
+    </main>
+  </body>
+</html>
